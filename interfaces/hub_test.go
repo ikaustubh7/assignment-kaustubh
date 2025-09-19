@@ -6,7 +6,7 @@ import (
 )
 
 func TestNewHub(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	if hub == nil {
 		t.Error("NewHub should return a non-nil hub")
@@ -42,7 +42,7 @@ func TestNewHub(t *testing.T) {
 }
 
 func TestNewClient(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Create a client with nil connection (for unit testing)
 	client := &Client{
@@ -71,7 +71,7 @@ func TestNewClient(t *testing.T) {
 }
 
 func TestHubClientRegistration(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Create a client with nil connection for testing
 	client := &Client{
@@ -97,7 +97,7 @@ func TestHubClientRegistration(t *testing.T) {
 }
 
 func TestHubClientUnregistration(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 	client := &Client{
 		ID:     "test-client-1",
 		Conn:   nil,
@@ -141,7 +141,7 @@ func TestHubClientUnregistration(t *testing.T) {
 }
 
 func TestHubTopicSubscription(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 	client := &Client{
 		ID:     "test-client-1",
 		Conn:   nil,
@@ -177,7 +177,7 @@ func TestHubTopicSubscription(t *testing.T) {
 }
 
 func TestHubTopicUnsubscription(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 	client := &Client{
 		ID:     "test-client-1",
 		Conn:   nil,
@@ -210,7 +210,7 @@ func TestHubTopicUnsubscription(t *testing.T) {
 }
 
 func TestHubMultipleClientsSubscription(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Create multiple clients
 	clients := make([]*Client, 3)
@@ -245,7 +245,7 @@ func TestHubMultipleClientsSubscription(t *testing.T) {
 }
 
 func TestHubCreateTopic(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Create topic
 	err := hub.CreateTopic("new-topic")
@@ -266,7 +266,7 @@ func TestHubCreateTopic(t *testing.T) {
 }
 
 func TestHubDeleteTopic(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Create topic and add subscriber
 	client := &Client{
@@ -303,7 +303,7 @@ func TestHubDeleteTopic(t *testing.T) {
 }
 
 func TestHubListTopics(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Initially should be empty
 	topics := hub.ListTopics()
@@ -350,7 +350,7 @@ func TestHubListTopics(t *testing.T) {
 }
 
 func TestHubTopicExists(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Non-existing topic
 	if hub.TopicExists("non-existing") {
@@ -375,7 +375,7 @@ func TestHubTopicExists(t *testing.T) {
 }
 
 func TestHubBroadcastMessage(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Create clients
 	clients := make([]*Client, 2)

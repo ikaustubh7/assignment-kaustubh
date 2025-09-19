@@ -260,12 +260,12 @@ var Upgrader = websocket.Upgrader{
 }
 
 // NewHub creates a new Hub instance
-func NewHub(redisAddr string) *Hub {
-	return NewHubWithConfig(redisAddr, DefaultHubConfig())
+func NewHub() *Hub {
+	return NewHubWithConfig(DefaultHubConfig())
 }
 
 // NewHubWithConfig creates a new Hub instance with custom configuration
-func NewHubWithConfig(redisAddr string, config *HubConfig) *Hub {
+func NewHubWithConfig(config *HubConfig) *Hub {
 	hub := &Hub{
 		Topics:      make(map[string]map[*Client]bool),
 		Clients:     make(map[*Client]bool),
@@ -749,6 +749,12 @@ func (c *Client) handleMessage(msg ClientMessage) {
 			return
 		}
 
+		// Check if topic exists before publishing
+		if !c.Hub.TopicExists(msg.Topic) {
+			c.sendError(msg.RequestID, "TOPIC_NOT_FOUND", fmt.Sprintf("Topic '%s' does not exist", msg.Topic))
+			return
+		}
+
 		message := Message{
 			Topic:   msg.Topic,
 			Type:    "event",
@@ -795,6 +801,16 @@ func (h *Hub) HandlePublish(w http.ResponseWriter, r *http.Request) {
 	var message Message
 	if err := json.NewDecoder(r.Body).Decode(&message); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Check if topic exists before publishing
+	if !h.TopicExists(message.Topic) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("Topic '%s' does not exist", message.Topic),
+		})
 		return
 	}
 

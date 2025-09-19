@@ -9,7 +9,7 @@ import (
 )
 
 func TestHubHandlePublish(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 	go hub.Run() // Start hub to handle broadcast messages
 
 	// Test valid publish request
@@ -51,7 +51,7 @@ func TestHubHandlePublish(t *testing.T) {
 }
 
 func TestHubHandlePublishInvalidMethod(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Test GET request (should be POST only)
 	req, _ := http.NewRequest("GET", "/publish", nil)
@@ -65,7 +65,7 @@ func TestHubHandlePublishInvalidMethod(t *testing.T) {
 }
 
 func TestHubHandlePublishInvalidJSON(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Test invalid JSON
 	req, _ := http.NewRequest("POST", "/publish", strings.NewReader("invalid json"))
@@ -81,7 +81,7 @@ func TestHubHandlePublishInvalidJSON(t *testing.T) {
 }
 
 func TestHubHandleStats(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Add some clients and topics for testing
 	client1 := &Client{
@@ -149,7 +149,7 @@ func TestHubHandleStats(t *testing.T) {
 }
 
 func TestHubHandleCreateTopic(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Test valid create topic request
 	reqBody := `{"name":"new-topic"}`
@@ -191,7 +191,7 @@ func TestHubHandleCreateTopic(t *testing.T) {
 }
 
 func TestHubHandleCreateTopicInvalidMethod(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Test GET request (should be POST only)
 	req, _ := http.NewRequest("GET", "/topics", nil)
@@ -205,7 +205,7 @@ func TestHubHandleCreateTopicInvalidMethod(t *testing.T) {
 }
 
 func TestHubHandleCreateTopicInvalidJSON(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Test invalid JSON
 	req, _ := http.NewRequest("POST", "/topics", strings.NewReader("invalid json"))
@@ -221,7 +221,7 @@ func TestHubHandleCreateTopicInvalidJSON(t *testing.T) {
 }
 
 func TestHubHandleCreateTopicEmptyName(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Test empty topic name
 	reqBody := `{"name":""}`
@@ -238,7 +238,7 @@ func TestHubHandleCreateTopicEmptyName(t *testing.T) {
 }
 
 func TestHubHandleCreateTopicAlreadyExists(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Create topic first
 	hub.CreateTopic("existing-topic")
@@ -269,7 +269,7 @@ func TestHubHandleCreateTopicAlreadyExists(t *testing.T) {
 }
 
 func TestHubHandleDeleteTopic(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Create topic first
 	hub.CreateTopic("delete-me")
@@ -311,7 +311,7 @@ func TestHubHandleDeleteTopic(t *testing.T) {
 }
 
 func TestHubHandleDeleteTopicInvalidMethod(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Test POST request (should be DELETE only)
 	req, _ := http.NewRequest("POST", "/topics/test-topic", nil)
@@ -325,7 +325,7 @@ func TestHubHandleDeleteTopicInvalidMethod(t *testing.T) {
 }
 
 func TestHubHandleDeleteTopicInvalidPath(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Test invalid path (no topic name)
 	req, _ := http.NewRequest("DELETE", "/topics/", nil)
@@ -339,7 +339,7 @@ func TestHubHandleDeleteTopicInvalidPath(t *testing.T) {
 }
 
 func TestHubHandleDeleteTopicNotFound(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Try to delete non-existing topic
 	req, _ := http.NewRequest("DELETE", "/topics/non-existing", nil)
@@ -364,7 +364,7 @@ func TestHubHandleDeleteTopicNotFound(t *testing.T) {
 }
 
 func TestHubHandleListTopics(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Add some topics with subscribers
 	client1 := &Client{
@@ -428,7 +428,7 @@ func TestHubHandleListTopics(t *testing.T) {
 }
 
 func TestHubHandleListTopicsInvalidMethod(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Test POST request (should be GET only)
 	req, _ := http.NewRequest("POST", "/topics", nil)
@@ -442,7 +442,7 @@ func TestHubHandleListTopicsInvalidMethod(t *testing.T) {
 }
 
 func TestHubHandleListTopicsEmpty(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 
 	// Test list topics with no topics
 	req, _ := http.NewRequest("GET", "/topics", nil)

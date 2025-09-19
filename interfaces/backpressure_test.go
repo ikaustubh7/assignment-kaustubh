@@ -12,7 +12,7 @@ func TestBackpressureDropOldest(t *testing.T) {
 		BackpressureStrategy: DropOldest,
 		ShutdownTimeout:      5 * time.Second,
 	}
-	hub := NewHubWithConfig("", config)
+	hub := NewHubWithConfig(config)
 
 	// Create a client
 	client := &Client{
@@ -59,7 +59,7 @@ func TestBackpressureDisconnectClient(t *testing.T) {
 		BackpressureStrategy: DisconnectClient,
 		ShutdownTimeout:      5 * time.Second,
 	}
-	hub := NewHubWithConfig("", config)
+	hub := NewHubWithConfig(config)
 	go hub.Run() // Start hub to handle unregister
 
 	// Create a client
@@ -100,7 +100,7 @@ func TestSlowConsumerError(t *testing.T) {
 		BackpressureStrategy: DisconnectClient,
 		ShutdownTimeout:      5 * time.Second,
 	}
-	hub := NewHubWithConfig("", config)
+	hub := NewHubWithConfig(config)
 
 	// Create a client
 	client := &Client{
@@ -134,7 +134,7 @@ func TestBroadcastWithBackpressure(t *testing.T) {
 		BackpressureStrategy: DropOldest,
 		ShutdownTimeout:      5 * time.Second,
 	}
-	hub := NewHubWithConfig("", config)
+	hub := NewHubWithConfig(config)
 	go hub.Run()
 
 	// Create two clients
@@ -194,7 +194,7 @@ func TestGracefulShutdown(t *testing.T) {
 		BackpressureStrategy: DisconnectClient,
 		ShutdownTimeout:      1 * time.Second, // Short timeout for testing
 	}
-	hub := NewHubWithConfig("", config)
+	hub := NewHubWithConfig(config)
 
 	// Start hub in goroutine
 	hubDone := make(chan bool)
@@ -250,7 +250,7 @@ func TestGracefulShutdown(t *testing.T) {
 func TestShutdownRejectsNewConnections(t *testing.T) {
 	config := DefaultHubConfig()
 	config.ShutdownTimeout = 100 * time.Millisecond
-	hub := NewHubWithConfig("", config)
+	hub := NewHubWithConfig(config)
 
 	// Start shutdown immediately
 	hub.Mutex.Lock()
@@ -287,7 +287,7 @@ func TestShutdownRejectsNewConnections(t *testing.T) {
 func TestShutdownIgnoresNewOperations(t *testing.T) {
 	config := DefaultHubConfig()
 	config.ShutdownTimeout = 100 * time.Millisecond
-	hub := NewHubWithConfig("", config)
+	hub := NewHubWithConfig(config)
 
 	// Create and register a client first
 	client := &Client{
@@ -386,7 +386,7 @@ func TestNewHubWithConfig(t *testing.T) {
 		ShutdownTimeout:      10 * time.Second,
 	}
 
-	hub := NewHubWithConfig("", config)
+	hub := NewHubWithConfig(config)
 
 	if hub.Config.MaxQueueSize != 100 {
 		t.Errorf("Expected MaxQueueSize 100, got %d", hub.Config.MaxQueueSize)

@@ -6,7 +6,7 @@ import (
 )
 
 func TestClientSendAck(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 	client := &Client{
 		ID:     "test-client",
 		Conn:   nil,
@@ -36,7 +36,7 @@ func TestClientSendAck(t *testing.T) {
 }
 
 func TestClientSendError(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 	client := &Client{
 		ID:     "test-client",
 		Conn:   nil,
@@ -79,7 +79,7 @@ func TestClientSendError(t *testing.T) {
 }
 
 func TestClientSendPong(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 	client := &Client{
 		ID:     "test-client",
 		Conn:   nil,
@@ -109,7 +109,7 @@ func TestClientSendPong(t *testing.T) {
 }
 
 func TestClientHandleSubscribeMessage(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 	go hub.Run() // Start hub to handle subscription requests
 
 	client := &Client{
@@ -153,7 +153,7 @@ func TestClientHandleSubscribeMessage(t *testing.T) {
 }
 
 func TestClientHandleSubscribeMessageInvalidTopic(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 	client := &Client{
 		ID:     "test-client",
 		Conn:   nil,
@@ -189,7 +189,7 @@ func TestClientHandleSubscribeMessageInvalidTopic(t *testing.T) {
 }
 
 func TestClientHandleSubscribeMessageInvalidClientID(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 	client := &Client{
 		ID:     "test-client",
 		Conn:   nil,
@@ -225,7 +225,7 @@ func TestClientHandleSubscribeMessageInvalidClientID(t *testing.T) {
 }
 
 func TestClientHandleUnsubscribeMessage(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 	go hub.Run() // Start hub to handle unsubscription requests
 
 	client := &Client{
@@ -264,7 +264,7 @@ func TestClientHandleUnsubscribeMessage(t *testing.T) {
 }
 
 func TestClientHandlePublishMessage(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 	go hub.Run() // Start hub to handle broadcast requests
 
 	client := &Client{
@@ -305,7 +305,7 @@ func TestClientHandlePublishMessage(t *testing.T) {
 }
 
 func TestClientHandlePublishMessageInvalidTopic(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 	client := &Client{
 		ID:     "test-client",
 		Conn:   nil,
@@ -346,7 +346,7 @@ func TestClientHandlePublishMessageInvalidTopic(t *testing.T) {
 }
 
 func TestClientHandlePublishMessageInvalidMessage(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 	client := &Client{
 		ID:     "test-client",
 		Conn:   nil,
@@ -382,7 +382,7 @@ func TestClientHandlePublishMessageInvalidMessage(t *testing.T) {
 }
 
 func TestClientHandlePingMessage(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 	client := &Client{
 		ID:     "test-client",
 		Conn:   nil,
@@ -414,7 +414,7 @@ func TestClientHandlePingMessage(t *testing.T) {
 }
 
 func TestClientHandleInvalidMessageType(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 	client := &Client{
 		ID:     "test-client",
 		Conn:   nil,
@@ -448,7 +448,7 @@ func TestClientHandleInvalidMessageType(t *testing.T) {
 }
 
 func TestClientChannelFullHandling(t *testing.T) {
-	hub := NewHub("")
+	hub := NewHub()
 	client := &Client{
 		ID:     "test-client",
 		Conn:   nil,

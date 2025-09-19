@@ -236,7 +236,7 @@ func (m *MockWebSocketConnection) GetSentMessages() []interface{} {
 
 // TestServer creates a test HTTP server with WebSocket support
 func CreateTestServer() (*httptest.Server, *Hub) {
-	hub := NewHub("")
+	hub := NewHub()
 	go hub.Run()
 
 	mux := http.NewServeMux()
