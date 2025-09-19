@@ -11,7 +11,76 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// Message represents a broadcast message
+// Client message types
+type ClientMessage struct {
+	Type      string         `json:"type"`                // "subscribe" | "unsubscribe" | "publish" | "ping"
+	Topic     string         `json:"topic,omitempty"`     // required for subscribe/unsubscribe/publish
+	ClientID  string         `json:"client_id,omitempty"` // required for subscribe/unsubscribe
+	Message   *ClientPayload `json:"message,omitempty"`   // required for publish
+	LastN     int            `json:"last_n,omitempty"`    // optional (subscribe)
+	RequestID string         `json:"request_id,omitempty"`
+}
+
+type SubscribeMessage struct {
+	Type      string `json:"type"`             // always "subscribe"
+	Topic     string `json:"topic"`            // required
+	ClientID  string `json:"client_id"`        // required
+	LastN     int    `json:"last_n,omitempty"` // optional
+	RequestID string `json:"request_id,omitempty"`
+}
+
+type UnsubscribeMessage struct {
+	Type      string `json:"type"`      // always "unsubscribe"
+	Topic     string `json:"topic"`     // required
+	ClientID  string `json:"client_id"` // required
+	RequestID string `json:"request_id,omitempty"`
+}
+
+type PublishMessage struct {
+	Type      string         `json:"type"`    // always "publish"
+	Topic     string         `json:"topic"`   // required
+	Message   PublishPayload `json:"message"` // required
+	RequestID string         `json:"request_id,omitempty"`
+}
+
+type PublishPayload struct {
+	ID      string      `json:"id"`      // UUID
+	Payload interface{} `json:"payload"` // flexible JSON
+}
+
+type ClientPayload struct {
+	ID      string      `json:"id"`      // UUID
+	Payload interface{} `json:"payload"` // flexible JSON
+}
+
+type PingMessage struct {
+	Type      string `json:"type"`                 // always "ping"
+	RequestID string `json:"request_id,omitempty"` // optional
+}
+
+// Server message types
+type ServerMessage struct {
+	Type      string         `json:"type"`                 // "ack" | "event" | "error" | "pong" | "info"
+	RequestID string         `json:"request_id,omitempty"` // echoed from client if provided
+	Topic     string         `json:"topic,omitempty"`      // required for event
+	Message   *ServerPayload `json:"message,omitempty"`    // present for event/info
+	Error     *ServerError   `json:"error,omitempty"`      // present for error
+	TS        string         `json:"ts,omitempty"`         // ISO timestamp
+}
+
+// Payload wrapper
+type ServerPayload struct {
+	ID      string      `json:"id"`
+	Payload interface{} `json:"payload"`
+}
+
+// Error wrapper
+type ServerError struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// Legacy Message for internal hub communication (keeping for compatibility)
 type Message struct {
 	Topic   string      `json:"topic"`
 	Type    string      `json:"type"`
@@ -23,9 +92,56 @@ type Message struct {
 type Client struct {
 	ID     string
 	Conn   *websocket.Conn
-	Topics map[string]bool // Set of subscribed topics
-	Send   chan Message    // Buffered channel for outbound messages
+	Topics map[string]bool    // Set of subscribed topics
+	Send   chan ServerMessage // Buffered channel for outbound messages
 	Hub    *Hub
+}
+
+// Helper methods for creating server messages
+func (c *Client) sendAck(requestID string) {
+	msg := ServerMessage{
+		Type:      "ack",
+		RequestID: requestID,
+		TS:        time.Now().UTC().Format(time.RFC3339),
+	}
+	select {
+	case c.Send <- msg:
+	default:
+		// Channel full, close client
+		c.Hub.Unregister <- c
+	}
+}
+
+func (c *Client) sendError(requestID, code, message string) {
+	msg := ServerMessage{
+		Type:      "error",
+		RequestID: requestID,
+		Error: &ServerError{
+			Code:    code,
+			Message: message,
+		},
+		TS: time.Now().UTC().Format(time.RFC3339),
+	}
+	select {
+	case c.Send <- msg:
+	default:
+		// Channel full, close client
+		c.Hub.Unregister <- c
+	}
+}
+
+func (c *Client) sendPong(requestID string) {
+	msg := ServerMessage{
+		Type:      "pong",
+		RequestID: requestID,
+		TS:        time.Now().UTC().Format(time.RFC3339),
+	}
+	select {
+	case c.Send <- msg:
+	default:
+		// Channel full, close client
+		c.Hub.Unregister <- c
+	}
 }
 
 // Hub manages all clients and topic subscriptions
@@ -192,10 +308,33 @@ func (h *Hub) localBroadcast(message Message) {
 		return
 	}
 
+	// Convert internal Message to ServerMessage for clients
+	serverMsg := ServerMessage{
+		Type:  "event",
+		Topic: message.Topic,
+		TS:    time.Now().UTC().Format(time.RFC3339),
+	}
+
+	// Handle payload conversion
+	if message.Payload != nil {
+		if clientPayload, ok := message.Payload.(*ClientPayload); ok {
+			serverMsg.Message = &ServerPayload{
+				ID:      clientPayload.ID,
+				Payload: clientPayload.Payload,
+			}
+		} else {
+			// For backward compatibility, wrap simple payloads
+			serverMsg.Message = &ServerPayload{
+				ID:      fmt.Sprintf("msg_%d", time.Now().UnixNano()),
+				Payload: message.Payload,
+			}
+		}
+	}
+
 	count := 0
 	for client := range subscribers {
 		select {
-		case client.Send <- message:
+		case client.Send <- serverMsg:
 			count++
 		default:
 			// Client's send channel is full, remove it
@@ -208,13 +347,80 @@ func (h *Hub) localBroadcast(message Message) {
 	log.Printf("Broadcasted message to topic '%s': %d recipients", message.Topic, count)
 }
 
+// Topic management methods
+func (h *Hub) CreateTopic(name string) error {
+	h.Mutex.Lock()
+	defer h.Mutex.Unlock()
+
+	if _, exists := h.Topics[name]; exists {
+		return fmt.Errorf("topic already exists")
+	}
+
+	h.Topics[name] = make(map[*Client]bool)
+	log.Printf("Topic '%s' created", name)
+	return nil
+}
+
+func (h *Hub) DeleteTopic(name string) error {
+	h.Mutex.Lock()
+	defer h.Mutex.Unlock()
+
+	subscribers, exists := h.Topics[name]
+	if !exists {
+		return fmt.Errorf("topic not found")
+	}
+
+	// Disconnect all subscribers from this topic
+	for client := range subscribers {
+		delete(client.Topics, name)
+		// Send unsubscribe notification to client
+		msg := ServerMessage{
+			Type:  "info",
+			Topic: name,
+			Message: &ServerPayload{
+				ID:      fmt.Sprintf("info_%d", time.Now().UnixNano()),
+				Payload: "Topic has been deleted",
+			},
+			TS: time.Now().UTC().Format(time.RFC3339),
+		}
+		select {
+		case client.Send <- msg:
+		default:
+			// Client channel full, will be cleaned up later
+		}
+	}
+
+	delete(h.Topics, name)
+	log.Printf("Topic '%s' deleted with %d subscribers", name, len(subscribers))
+	return nil
+}
+
+func (h *Hub) ListTopics() map[string]int {
+	h.Mutex.RLock()
+	defer h.Mutex.RUnlock()
+
+	topics := make(map[string]int)
+	for topic, subscribers := range h.Topics {
+		topics[topic] = len(subscribers)
+	}
+	return topics
+}
+
+func (h *Hub) TopicExists(name string) bool {
+	h.Mutex.RLock()
+	defer h.Mutex.RUnlock()
+
+	_, exists := h.Topics[name]
+	return exists
+}
+
 // NewClient creates a new client
 func NewClient(id string, conn *websocket.Conn, hub *Hub) *Client {
 	return &Client{
 		ID:     id,
 		Conn:   conn,
 		Topics: make(map[string]bool),
-		Send:   make(chan Message, 256),
+		Send:   make(chan ServerMessage, 256),
 		Hub:    hub,
 	}
 }
@@ -265,7 +471,7 @@ func (c *Client) readPump() {
 	})
 
 	for {
-		var msg map[string]interface{}
+		var msg ClientMessage
 		err := c.Conn.ReadJSON(&msg)
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
@@ -279,33 +485,58 @@ func (c *Client) readPump() {
 }
 
 // handleMessage processes incoming client messages
-func (c *Client) handleMessage(msg map[string]interface{}) {
-	msgType, ok := msg["type"].(string)
-	if !ok {
-		return
-	}
-
-	switch msgType {
+func (c *Client) handleMessage(msg ClientMessage) {
+	switch msg.Type {
 	case "subscribe":
-		if topic, ok := msg["topic"].(string); ok {
-			c.Hub.Subscribe <- &SubscribeRequest{Client: c, Topic: topic}
+		if msg.Topic == "" {
+			c.sendError(msg.RequestID, "INVALID_TOPIC", "Topic is required for subscribe")
+			return
 		}
+		if msg.ClientID == "" {
+			c.sendError(msg.RequestID, "INVALID_CLIENT_ID", "Client ID is required for subscribe")
+			return
+		}
+
+		c.Hub.Subscribe <- &SubscribeRequest{Client: c, Topic: msg.Topic}
+		c.sendAck(msg.RequestID)
 
 	case "unsubscribe":
-		if topic, ok := msg["topic"].(string); ok {
-			c.Hub.Unsubscribe <- &SubscribeRequest{Client: c, Topic: topic}
+		if msg.Topic == "" {
+			c.sendError(msg.RequestID, "INVALID_TOPIC", "Topic is required for unsubscribe")
+			return
+		}
+		if msg.ClientID == "" {
+			c.sendError(msg.RequestID, "INVALID_CLIENT_ID", "Client ID is required for unsubscribe")
+			return
 		}
 
+		c.Hub.Unsubscribe <- &SubscribeRequest{Client: c, Topic: msg.Topic}
+		c.sendAck(msg.RequestID)
+
 	case "publish":
-		if topic, ok := msg["topic"].(string); ok {
-			message := Message{
-				Topic:   topic,
-				Type:    "message",
-				Payload: msg["payload"],
-				Sender:  c.ID,
-			}
-			c.Hub.Broadcast <- message
+		if msg.Topic == "" {
+			c.sendError(msg.RequestID, "INVALID_TOPIC", "Topic is required for publish")
+			return
 		}
+		if msg.Message == nil {
+			c.sendError(msg.RequestID, "INVALID_MESSAGE", "Message is required for publish")
+			return
+		}
+
+		message := Message{
+			Topic:   msg.Topic,
+			Type:    "event",
+			Payload: msg.Message,
+			Sender:  c.ID,
+		}
+		c.Hub.Broadcast <- message
+		c.sendAck(msg.RequestID)
+
+	case "ping":
+		c.sendPong(msg.RequestID)
+
+	default:
+		c.sendError(msg.RequestID, "INVALID_MESSAGE_TYPE", "Unknown message type: "+msg.Type)
 	}
 }
 
@@ -364,4 +595,95 @@ func (h *Hub) HandleStats(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(stats)
+}
+
+// Topic management endpoints
+func (h *Hub) HandleCreateTopic(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Name string `json:"name"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	if req.Name == "" {
+		http.Error(w, "Topic name is required", http.StatusBadRequest)
+		return
+	}
+
+	err := h.CreateTopic(req.Name)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "Topic already exists",
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "created",
+		"topic":  req.Name,
+	})
+}
+
+func (h *Hub) HandleDeleteTopic(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract topic name from URL path
+	path := r.URL.Path
+	if len(path) < 8 || path[:8] != "/topics/" {
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+
+	topicName := path[8:] // Remove "/topics/" prefix
+	if topicName == "" {
+		http.Error(w, "Topic name is required", http.StatusBadRequest)
+		return
+	}
+
+	err := h.DeleteTopic(topicName)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "Topic not found",
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "deleted",
+		"topic":  topicName,
+	})
+}
+
+func (h *Hub) HandleListTopics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	topics := h.ListTopics()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"topics": topics,
+		"count":  len(topics),
+	})
 }

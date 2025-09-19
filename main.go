@@ -33,6 +33,20 @@ func main() {
 	http.HandleFunc("/publish", cors(http.HandlerFunc(hub.HandlePublish)).ServeHTTP)
 	http.HandleFunc("/stats", cors(http.HandlerFunc(hub.HandleStats)).ServeHTTP)
 
+	// Topic management routes
+	http.HandleFunc("/topics", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "POST":
+			cors(http.HandlerFunc(hub.HandleCreateTopic)).ServeHTTP(w, r)
+		case "GET":
+			cors(http.HandlerFunc(hub.HandleListTopics)).ServeHTTP(w, r)
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	http.HandleFunc("/topics/", cors(http.HandlerFunc(hub.HandleDeleteTopic)).ServeHTTP)
+
 	// Serve static files for testing
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" {
