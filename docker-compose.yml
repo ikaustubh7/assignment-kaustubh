@@ -1,31 +1,12 @@
-version: '3.8'
-
 services:
   websocket-backend:
     build: .
     ports:
       - "8080:8080"
-    environment:
-      - REDIS_ADDR=redis:6379
-    depends_on:
-      - redis
     restart: unless-stopped
     networks:
       - websocket-network
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    restart: unless-stopped
-    networks:
-      - websocket-network
-    volumes:
-      - redis_data:/data
 
 networks:
   websocket-network:
     driver: bridge
-
-volumes:
-  redis_data:

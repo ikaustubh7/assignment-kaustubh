@@ -117,6 +117,23 @@ func (tc *TestClient) WaitForMessage(msgType string, timeout time.Duration) *Ser
 	return nil
 }
 
+// WaitForMessageWithRequestID waits for a message of specific type and request ID
+func (tc *TestClient) WaitForMessageWithRequestID(msgType, requestID string, timeout time.Duration) *ServerMessage {
+	start := time.Now()
+	for time.Since(start) < timeout {
+		tc.mutex.RLock()
+		for _, msg := range tc.Messages {
+			if msg.Type == msgType && msg.RequestID == requestID {
+				tc.mutex.RUnlock()
+				return &msg
+			}
+		}
+		tc.mutex.RUnlock()
+		time.Sleep(10 * time.Millisecond)
+	}
+	return nil
+}
+
 // WaitForMessageCount waits for a specific number of messages
 func (tc *TestClient) WaitForMessageCount(count int, timeout time.Duration) bool {
 	start := time.Now()

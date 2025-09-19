@@ -3,12 +3,15 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 
 	interfaces "websocket-broadcast/interfaces"
 )
 
 func main() {
-	hub := interfaces.NewHub("") 
+	// Use Redis if REDIS_ADDR is set, otherwise run without Redis
+	redisAddr := os.Getenv("REDIS_ADDR")
+	hub := interfaces.NewHub(redisAddr)
 
 	// Start hub
 	go hub.Run()

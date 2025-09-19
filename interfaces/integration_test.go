@@ -67,7 +67,7 @@ func TestWebSocketIntegrationSubscribeAndPublish(t *testing.T) {
 	}
 
 	// Wait for publish acknowledgment
-	publishAck := client1.WaitForMessage("ack", time.Second)
+	publishAck := client1.WaitForMessageWithRequestID("ack", "req-3", time.Second)
 	if publishAck == nil {
 		t.Error("Client1 should receive publish acknowledgment")
 	} else if publishAck.RequestID != "req-3" {
@@ -150,7 +150,7 @@ func TestWebSocketIntegrationUnsubscribe(t *testing.T) {
 	}
 
 	// Wait for unsubscription acknowledgment
-	unsubAck := client.WaitForMessage("ack", time.Second)
+	unsubAck := client.WaitForMessageWithRequestID("ack", "req-2", time.Second)
 	if unsubAck == nil {
 		t.Error("Client should receive unsubscription acknowledgment")
 	} else if unsubAck.RequestID != "req-2" {
@@ -243,8 +243,8 @@ func TestWebSocketIntegrationErrorHandling(t *testing.T) {
 		t.Fatalf("Failed to send invalid subscribe: %v", err)
 	}
 
-	// Wait for error response
-	errorMsg2 := client.WaitForMessage("error", time.Second)
+	// Wait for error response with specific request ID
+	errorMsg2 := client.WaitForMessageWithRequestID("error", "req-2", time.Second)
 	if errorMsg2 == nil {
 		t.Error("Client should receive error response for invalid subscribe")
 	} else {
@@ -264,8 +264,8 @@ func TestWebSocketIntegrationErrorHandling(t *testing.T) {
 		t.Fatalf("Failed to send invalid publish: %v", err)
 	}
 
-	// Wait for error response
-	errorMsg3 := client.WaitForMessage("error", time.Second)
+	// Wait for error response with specific request ID
+	errorMsg3 := client.WaitForMessageWithRequestID("error", "req-3", time.Second)
 	if errorMsg3 == nil {
 		t.Error("Client should receive error response for invalid publish")
 	} else {

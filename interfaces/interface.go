@@ -104,12 +104,7 @@ func (c *Client) sendAck(requestID string) {
 		RequestID: requestID,
 		TS:        time.Now().UTC().Format(time.RFC3339),
 	}
-	select {
-	case c.Send <- msg:
-	default:
-		// Channel full, close client
-		c.Hub.Unregister <- c
-	}
+	c.sendMessageWithBackpressure(msg)
 }
 
 func (c *Client) sendError(requestID, code, message string) {
@@ -122,12 +117,7 @@ func (c *Client) sendError(requestID, code, message string) {
 		},
 		TS: time.Now().UTC().Format(time.RFC3339),
 	}
-	select {
-	case c.Send <- msg:
-	default:
-		// Channel full, close client
-		c.Hub.Unregister <- c
-	}
+	c.sendMessageWithBackpressure(msg)
 }
 
 func (c *Client) sendPong(requestID string) {
@@ -136,11 +126,85 @@ func (c *Client) sendPong(requestID string) {
 		RequestID: requestID,
 		TS:        time.Now().UTC().Format(time.RFC3339),
 	}
+	c.sendMessageWithBackpressure(msg)
+}
+
+// sendMessageWithBackpressure handles backpressure according to hub configuration
+func (c *Client) sendMessageWithBackpressure(msg ServerMessage) {
 	select {
 	case c.Send <- msg:
+		// Message sent successfully
 	default:
-		// Channel full, close client
-		c.Hub.Unregister <- c
+		// Channel is full, handle according to backpressure strategy
+		switch c.Hub.Config.BackpressureStrategy {
+		case DropOldest:
+			// Try to drop the oldest message and send the new one
+			select {
+			case <-c.Send: // Drop oldest
+				select {
+				case c.Send <- msg: // Send new message
+				default:
+					// Still full, disconnect client
+					c.sendSlowConsumerError()
+					c.Hub.Unregister <- c
+				}
+			default:
+				// Channel was empty when we tried to drop, just send
+				select {
+				case c.Send <- msg:
+				default:
+					c.sendSlowConsumerError()
+					c.Hub.Unregister <- c
+				}
+			}
+		case DisconnectClient:
+			// Send SLOW_CONSUMER error and disconnect
+			c.sendSlowConsumerError()
+			c.Hub.Unregister <- c
+		}
+	}
+}
+
+// sendSlowConsumerError sends a SLOW_CONSUMER error (best effort)
+func (c *Client) sendSlowConsumerError() {
+	errorMsg := ServerMessage{
+		Type: "error",
+		Error: &ServerError{
+			Code:    "SLOW_CONSUMER",
+			Message: "Client consuming messages too slowly, disconnecting",
+		},
+		TS: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	// Best effort - don't block if channel is full
+	select {
+	case c.Send <- errorMsg:
+	default:
+		// Channel full, can't send error message
+	}
+}
+
+// BackpressureStrategy defines how to handle queue overflow
+type BackpressureStrategy int
+
+const (
+	DropOldest BackpressureStrategy = iota
+	DisconnectClient
+)
+
+// HubConfig contains configuration for the Hub
+type HubConfig struct {
+	MaxQueueSize         int
+	BackpressureStrategy BackpressureStrategy
+	ShutdownTimeout      time.Duration
+}
+
+// DefaultHubConfig returns default configuration
+func DefaultHubConfig() *HubConfig {
+	return &HubConfig{
+		MaxQueueSize:         256,
+		BackpressureStrategy: DisconnectClient,
+		ShutdownTimeout:      30 * time.Second,
 	}
 }
 
@@ -167,8 +231,17 @@ type Hub struct {
 	// Channel for topic unsubscription
 	Unsubscribe chan *SubscribeRequest
 
+	// Channel for shutdown signal
+	ShutdownCh chan struct{}
+
 	// Mutex for thread-safe operations
 	Mutex sync.RWMutex
+
+	// Configuration
+	Config *HubConfig
+
+	// Shutdown state
+	shuttingDown bool
 }
 
 // SubscribeRequest represents a subscription/unsubscription request
@@ -188,6 +261,11 @@ var Upgrader = websocket.Upgrader{
 
 // NewHub creates a new Hub instance
 func NewHub(redisAddr string) *Hub {
+	return NewHubWithConfig(redisAddr, DefaultHubConfig())
+}
+
+// NewHubWithConfig creates a new Hub instance with custom configuration
+func NewHubWithConfig(redisAddr string, config *HubConfig) *Hub {
 	hub := &Hub{
 		Topics:      make(map[string]map[*Client]bool),
 		Clients:     make(map[*Client]bool),
@@ -196,6 +274,8 @@ func NewHub(redisAddr string) *Hub {
 		Broadcast:   make(chan Message, 256),
 		Subscribe:   make(chan *SubscribeRequest),
 		Unsubscribe: make(chan *SubscribeRequest),
+		ShutdownCh:  make(chan struct{}),
+		Config:      config,
 	}
 
 	return hub
@@ -206,19 +286,34 @@ func (h *Hub) Run() {
 	for {
 		select {
 		case client := <-h.Register:
+			if h.shuttingDown {
+				// Reject new connections during shutdown
+				if client.Conn != nil {
+					client.Conn.Close()
+				}
+				continue
+			}
 			h.registerClient(client)
 
 		case client := <-h.Unregister:
 			h.unregisterClient(client)
 
 		case message := <-h.Broadcast:
-			h.broadcastMessage(message)
+			if !h.shuttingDown {
+				h.broadcastMessage(message)
+			}
 
 		case req := <-h.Subscribe:
-			h.subscribeToTopic(req.Client, req.Topic)
+			if !h.shuttingDown {
+				h.subscribeToTopic(req.Client, req.Topic)
+			}
 
 		case req := <-h.Unsubscribe:
 			h.unsubscribeFromTopic(req.Client, req.Topic)
+
+		case <-h.ShutdownCh:
+			h.performGracefulShutdown()
+			return
 		}
 	}
 }
@@ -333,14 +428,49 @@ func (h *Hub) localBroadcast(message Message) {
 
 	count := 0
 	for client := range subscribers {
-		select {
-		case client.Send <- serverMsg:
-			count++
-		default:
-			// Client's send channel is full, remove it
-			go func(c *Client) {
-				h.Unregister <- c
-			}(client)
+		switch h.Config.BackpressureStrategy {
+		case DropOldest:
+			select {
+			case client.Send <- serverMsg:
+				count++
+			default:
+				// Try to drop oldest and send new message
+				select {
+				case <-client.Send: // Drop oldest
+					select {
+					case client.Send <- serverMsg:
+						count++
+					default:
+						// Still full, disconnect
+						client.sendSlowConsumerError()
+						go func(c *Client) {
+							h.Unregister <- c
+						}(client)
+					}
+				default:
+					// Channel was empty, try again
+					select {
+					case client.Send <- serverMsg:
+						count++
+					default:
+						client.sendSlowConsumerError()
+						go func(c *Client) {
+							h.Unregister <- c
+						}(client)
+					}
+				}
+			}
+		case DisconnectClient:
+			select {
+			case client.Send <- serverMsg:
+				count++
+			default:
+				// Client's send channel is full, remove it
+				client.sendSlowConsumerError()
+				go func(c *Client) {
+					h.Unregister <- c
+				}(client)
+			}
 		}
 	}
 
@@ -414,13 +544,109 @@ func (h *Hub) TopicExists(name string) bool {
 	return exists
 }
 
-// NewClient creates a new client
+// Shutdown initiates graceful shutdown of the hub
+func (h *Hub) Shutdown() {
+	log.Println("Initiating graceful shutdown...")
+	close(h.ShutdownCh)
+}
+
+// performGracefulShutdown handles the graceful shutdown process
+func (h *Hub) performGracefulShutdown() {
+	log.Println("Starting graceful shutdown process...")
+
+	h.Mutex.Lock()
+	h.shuttingDown = true
+	h.Mutex.Unlock()
+
+	// Stop accepting new operations and give time for in-flight operations
+	shutdownTimer := time.NewTimer(h.Config.ShutdownTimeout)
+	defer shutdownTimer.Stop()
+
+	// Create a channel to signal when all clients are disconnected
+	allDisconnected := make(chan struct{})
+
+	go func() {
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				h.Mutex.RLock()
+				clientCount := len(h.Clients)
+				h.Mutex.RUnlock()
+
+				if clientCount == 0 {
+					close(allDisconnected)
+					return
+				}
+			case <-shutdownTimer.C:
+				close(allDisconnected)
+				return
+			}
+		}
+	}()
+
+	// Send shutdown notification to all clients
+	h.notifyClientsShutdown()
+
+	// Wait for graceful disconnect or timeout
+	select {
+	case <-allDisconnected:
+		log.Println("All clients disconnected gracefully")
+	case <-shutdownTimer.C:
+		log.Println("Shutdown timeout reached, forcing disconnect")
+		h.forceDisconnectAllClients()
+	}
+
+	log.Println("Graceful shutdown completed")
+}
+
+// notifyClientsShutdown sends shutdown notification to all clients
+func (h *Hub) notifyClientsShutdown() {
+	h.Mutex.RLock()
+	defer h.Mutex.RUnlock()
+
+	shutdownMsg := ServerMessage{
+		Type: "info",
+		Message: &ServerPayload{
+			ID:      fmt.Sprintf("shutdown_%d", time.Now().UnixNano()),
+			Payload: "Server is shutting down. Please disconnect gracefully.",
+		},
+		TS: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	for client := range h.Clients {
+		select {
+		case client.Send <- shutdownMsg:
+		default:
+			// Client channel full, will be disconnected anyway
+		}
+	}
+}
+
+// forceDisconnectAllClients forcefully disconnects all remaining clients
+func (h *Hub) forceDisconnectAllClients() {
+	h.Mutex.Lock()
+	defer h.Mutex.Unlock()
+
+	for client := range h.Clients {
+		close(client.Send)
+		if client.Conn != nil {
+			client.Conn.Close()
+		}
+		delete(h.Clients, client)
+	}
+
+	// Clear all topics
+	h.Topics = make(map[string]map[*Client]bool)
+} // NewClient creates a new client
 func NewClient(id string, conn *websocket.Conn, hub *Hub) *Client {
 	return &Client{
 		ID:     id,
 		Conn:   conn,
 		Topics: make(map[string]bool),
-		Send:   make(chan ServerMessage, 256),
+		Send:   make(chan ServerMessage, hub.Config.MaxQueueSize),
 		Hub:    hub,
 	}
 }
