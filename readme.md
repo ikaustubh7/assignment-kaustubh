@@ -28,12 +28,7 @@ docker-compose up --build
 docker build -t websocket-backend .
 ```
 
-2. Run with Redis (for distributed messaging):
-```bash
-docker run -p 8080:8080 --link redis:redis websocket-backend
-```
-
-3. Run without Redis (single server mode):
+2. Run :
 ```bash
 docker run -p 8080:8080 websocket-backend
 ```
