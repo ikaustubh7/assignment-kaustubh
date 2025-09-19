@@ -8,9 +8,7 @@ import (
 )
 
 func main() {
-	// Create hub (pass Redis address for distributed mode)
-	// hub := interfaces.NewHub("localhost:6379") // With Redis
-	hub := interfaces.NewHub("") // Without Redis (single server)
+	hub := interfaces.NewHub("") 
 
 	// Start hub
 	go hub.Run()
